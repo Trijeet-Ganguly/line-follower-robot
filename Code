@@ -1,0 +1,74 @@
+// PID Line Follower - Arduino Uno, 5 IR sensors, L298N driver
+
+// Motor pins
+const int ENA = 5, IN1 = 7, IN2 = 8;    // Left motor
+const int ENB = 6, IN3 = 9, IN4 = 10;   // Right motor
+
+// Sensor pins (left to right)
+const int sensorPins[5] = {A0, A1, A2, A3, A4};
+const int weights[5]    = {-2, -1, 0, 1, 2};
+
+// Tuning values
+float Kp = 25.0;
+float Ki = 0.0;
+float Kd = 15.0;
+const int baseSpeed = 150;   // 0-255
+const int maxSpeed  = 220;
+
+// Set to 1 if the sensor reads HIGH on the black line, 0 if LOW
+const int LINE_IS_HIGH = 1;
+
+float error = 0, lastError = 0, integral = 0;
+
+void setup() {
+  pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
+  for (int i = 0; i < 5; i++) pinMode(sensorPins[i], INPUT);
+  Serial.begin(9600);
+}
+
+bool readSensor(int pin) {
+  // Sensors are read as digital values; adjust if you use analog thresholds
+  bool v = digitalRead(pin);
+  return LINE_IS_HIGH ? v : !v;
+}
+
+void setMotor(int left, int right) {
+  left  = constrain(left,  -maxSpeed, maxSpeed);
+  right = constrain(right, -maxSpeed, maxSpeed);
+
+  digitalWrite(IN1, left  >= 0); digitalWrite(IN2, left  < 0);
+  digitalWrite(IN3, right >= 0); digitalWrite(IN4, right < 0);
+
+  analogWrite(ENA, abs(left));
+  analogWrite(ENB, abs(right));
+}
+
+void loop() {
+  int sum = 0, active = 0;
+  for (int i = 0; i < 5; i++) {
+    if (readSensor(sensorPins[i])) {
+      sum += weights[i];
+      active++;
+    }
+  }
+
+  if (active == 0) {
+    // Line lost: spin in the direction of the last known error
+    if (lastError > 0) setMotor(120, -120);
+    else               setMotor(-120, 120);
+    return;
+  }
+
+  error = (float)sum / active;
+
+  integral += error;
+  integral = constrain(integral, -50, 50);   // anti-windup
+  float derivative = error - lastError;
+
+  float correction = Kp * error + Ki * integral + Kd * derivative;
+  lastError = error;
+
+  setMotor(baseSpeed + correction, baseSpeed - correction);
+}
